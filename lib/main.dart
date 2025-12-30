@@ -26,29 +26,77 @@ void main() {
 // ROOT WIDGET
 // -----------------------------
 
-class MyApp extends StatelessWidget {
+// -----------------------------
+// ROOT WIDGET CON TEMA DINÁMICO
+// -----------------------------
+
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  // Modo de tema actual de la app
+  ThemeMode _themeMode = ThemeMode.system;
+
+  // Cambia el modo de tema
+  void _setThemeMode(ThemeMode mode) {
+    setState(() {
+      _themeMode = mode;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Test Generator',
       debugShowCheckedModeBanner: false,
+
+      // Tema claro
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
+        brightness: Brightness.light,
       ),
-      home: const HomePage(),
+
+      // Tema oscuro
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+        brightness: Brightness.dark,
+      ),
+
+      // Modo activo (claro / oscuro / sistema)
+      themeMode: _themeMode,
+
+      // Pasamos el callback a la HomePage
+      home: HomePage(
+        onThemeChanged: _setThemeMode,
+        currentThemeMode: _themeMode,
+      ),
     );
   }
 }
+
 
 // -----------------------------
 // HOME PAGE
 // -----------------------------
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  const HomePage({
+    super.key,
+    required this.onThemeChanged,
+    required this.currentThemeMode,
+  });
+
+  final void Function(ThemeMode) onThemeChanged;
+  final ThemeMode currentThemeMode;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -192,7 +240,32 @@ class _HomePageState extends State<HomePage> {
     bool hasQuestions = _questionBank.isNotEmpty;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Test Generator')),
+      appBar: AppBar(
+        title: const Text('Test Generator'),
+        actions: <Widget>[
+          PopupMenuButton<ThemeMode>(
+            icon: const Icon(Icons.brightness_6),
+            onSelected: widget.onThemeChanged,
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<ThemeMode>>[
+              CheckedPopupMenuItem(
+                value: ThemeMode.system,
+                checked: widget.currentThemeMode == ThemeMode.system,
+                child: const Text('Sistema'),
+              ),
+              CheckedPopupMenuItem(
+                value: ThemeMode.light,
+                checked: widget.currentThemeMode == ThemeMode.light,
+                child: const Text('Claro'),
+              ),
+              CheckedPopupMenuItem(
+                value: ThemeMode.dark,
+                checked: widget.currentThemeMode == ThemeMode.dark,
+                child: const Text('Oscuro'),
+              ),
+            ],
+          ),
+        ],
+      ),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
