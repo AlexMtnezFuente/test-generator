@@ -1,19 +1,16 @@
+// lib/main.dart
+
 // -----------------------------
 // IMPORTS
 // -----------------------------
 
-// Librerías estándar de Dart
-import 'dart:convert'; // Para convertir texto JSON a objetos Dart
-import 'dart:math'; // Para Random y min
-import 'dart:typed_data'; // Para manejar bytes (Uint8List)
+import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
 
-// Flutter (UI y widgets)
 import 'package:flutter/material.dart';
-
-// Plugin para seleccionar archivos del dispositivo
 import 'package:file_picker/file_picker.dart';
 
-// Archivos propios del proyecto
 import 'exam_page.dart';
 import 'models.dart';
 
@@ -22,8 +19,6 @@ import 'models.dart';
 // -----------------------------
 
 void main() {
-  // Punto de entrada de la app.
-  // Flutter empieza a dibujar la UI desde aquí.
   runApp(const MyApp());
 }
 
@@ -31,28 +26,18 @@ void main() {
 // ROOT WIDGET
 // -----------------------------
 
-/// Widget raíz de la aplicación.
-/// No tiene estado porque solo define configuración global.
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      // Título interno de la app
       title: 'Test Generator',
-
-      // Quitamos el banner DEBUG
       debugShowCheckedModeBanner: false,
-
-      // Tema global
       theme: ThemeData(
-        // Genera una paleta de colores coherente
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-
-      // Pantalla inicial
       home: const HomePage(),
     );
   }
@@ -62,8 +47,6 @@ class MyApp extends StatelessWidget {
 // HOME PAGE
 // -----------------------------
 
-/// Pantalla principal.
-/// Permite cargar un JSON y empezar el examen.
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -71,17 +54,13 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-/// Estado de la pantalla principal.
 class _HomePageState extends State<HomePage> {
-  // Texto de estado que se muestra debajo del botón
   String _status = 'No hay ningún JSON cargado';
-
-  // Evita que el usuario pulse el botón varias veces
   bool _loading = false;
 
-  /// Abre el selector de archivos, carga el JSON,
-  /// genera el examen y navega a la pantalla de preguntas.
-  Future<void> _loadJsonAndStart() async {
+  List<Question> _questionBank = <Question>[];
+
+  Future<void> _loadJson() async {
     if (_loading) return;
 
     setState(() {
@@ -89,14 +68,12 @@ class _HomePageState extends State<HomePage> {
       _status = 'Seleccionando archivo...';
     });
 
-    // Abrimos el selector de archivos
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: <String>['json'],
       withData: true,
     );
 
-    // Usuario canceló
     if (result == null) {
       setState(() {
         _loading = false;
@@ -105,7 +82,6 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    // Leemos los bytes del archivo
     Uint8List? bytes = result.files.single.bytes;
 
     if (bytes == null) {
@@ -117,13 +93,9 @@ class _HomePageState extends State<HomePage> {
     }
 
     try {
-      // Convertimos bytes a texto
       String content = utf8.decode(bytes);
-
-      // Convertimos texto JSON a objeto Dart
       Object decoded = jsonDecode(content);
 
-      // El JSON debe ser una lista de preguntas
       if (decoded is! List) {
         setState(() {
           _loading = false;
@@ -132,7 +104,6 @@ class _HomePageState extends State<HomePage> {
         return;
       }
 
-      // Convertimos cada elemento en un objeto Question
       List<Question> questions = decoded
           .whereType<Map<String, dynamic>>()
           .map<Question>(Question.fromJson)
@@ -147,21 +118,8 @@ class _HomePageState extends State<HomePage> {
         return;
       }
 
-      // Generamos el examen
-      List<Question> exam = _generateExam(
-        questions: questions,
-        count: 10,
-      );
-
-      // Navegamos a la pantalla del examen
-      if (!mounted) return;
-      Navigator.of(context).push(
-        MaterialPageRoute<Widget>(
-          builder: (_) => ExamPage(exam: exam),
-        ),
-      );
-
       setState(() {
+        _questionBank = questions;
         _loading = false;
         _status = 'Cargadas ${questions.length} preguntas';
       });
@@ -173,10 +131,35 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  /// Genera un examen aleatorio:
-  /// - Desordena preguntas
-  /// - Limita el número
-  /// - Desordena respuestas de cada pregunta
+  void _startFixedExam() {
+    if (_questionBank.isEmpty) return;
+
+    List<Question> exam = _generateExam(
+      questions: _questionBank,
+      count: 10,
+    );
+
+    Navigator.of(context).push(
+      MaterialPageRoute<Widget>(
+        builder: (_) => ExamPage(exam: exam),
+      ),
+    );
+  }
+
+  void _startInfiniteExam() {
+    if (_questionBank.isEmpty) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute<Widget>(
+        builder: (_) => ExamPage(
+          exam: _generateInfiniteExamSeed(_questionBank),
+          infiniteMode: true,
+          questionBank: _questionBank,
+        ),
+      ),
+    );
+  }
+
   List<Question> _generateExam({
     required List<Question> questions,
     required int count,
@@ -193,8 +176,21 @@ class _HomePageState extends State<HomePage> {
     }).toList();
   }
 
+  List<Question> _generateInfiniteExamSeed(List<Question> questions) {
+    List<Question> shuffled = List<Question>.from(questions);
+    shuffled.shuffle(Random());
+
+    return shuffled.take(min(10, shuffled.length)).map((Question q) {
+      List<Answer> answers = List<Answer>.from(q.answers);
+      answers.shuffle(Random());
+      return q.copyWith(answers: answers);
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
+    bool hasQuestions = _questionBank.isNotEmpty;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Test Generator')),
       body: Center(
@@ -204,9 +200,19 @@ class _HomePageState extends State<HomePage> {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               ElevatedButton.icon(
-                onPressed: _loading ? null : _loadJsonAndStart,
+                onPressed: _loading ? null : _loadJson,
                 icon: const Icon(Icons.upload_file),
-                label: const Text('Cargar JSON y empezar examen'),
+                label: const Text('Cargar JSON'),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: hasQuestions ? _startFixedExam : null,
+                child: const Text('Empezar examen (10 preguntas)'),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: hasQuestions ? _startInfiniteExam : null,
+                child: const Text('Empezar examen infinito'),
               ),
               const SizedBox(height: 16),
               Text(_status),

@@ -6,9 +6,16 @@ import 'package:flutter/material.dart';
 import 'models.dart';
 
 class ExamPage extends StatefulWidget {
-  const ExamPage({super.key, required this.exam});
+  const ExamPage({
+    super.key,
+    required this.exam,
+    this.infiniteMode = false,
+    this.questionBank = const <Question>[],
+  });
 
   final List<Question> exam;
+  final bool infiniteMode;
+  final List<Question> questionBank;
 
   @override
   State<ExamPage> createState() => _ExamPageState();
@@ -23,11 +30,20 @@ class _ExamPageState extends State<ExamPage> {
   bool _isCorrect = false;
   bool _hasChecked = false;
 
+  // Indica si esta pregunta ya se falló al menos una vez en este intento.
+  // Sirve para mostrar la explicación SOLO cuando luego la aciertas.
+  bool _failedBefore = false;
+
   final Random _random = Random();
 
-  Question get _question => widget.exam[_currentIndex];
+  late final List<Question> _exam = List<Question>.from(widget.exam);
+
+  Question get _question => _exam[_currentIndex];
 
   void _toggle(int index) {
+    // Si ya acertaste, bloqueamos la interacción con las opciones
+    if (_isCorrect) return;
+
     setState(() {
       if (_selected.contains(index)) {
         _selected.remove(index);
@@ -35,6 +51,7 @@ class _ExamPageState extends State<ExamPage> {
         _selected.add(index);
       }
 
+      // Si cambias la selección, invalidas la comprobación previa
       _hasChecked = false;
       _isCorrect = false;
     });
@@ -49,20 +66,25 @@ class _ExamPageState extends State<ExamPage> {
     if (ok) {
       setState(() {
         _hasChecked = true;
-        _isCorrect = true;
+        _isCorrect = true; // Bloquea opciones y habilita "Siguiente"
       });
+
+      // La explicación se muestra SOLO si antes fallaste esta pregunta
+      if (_failedBefore) await _showExplanationDialog(_question.explanation);
+
       return;
     }
 
+    // Si fallas: reseteamos selección + reordenamos respuestas, pero NO mostramos popup
     setState(() {
+      _failedBefore = true;
+
       _selected.clear();
       _hasChecked = false;
       _isCorrect = false;
 
       _question.answers.shuffle(_random);
     });
-
-    await _showExplanationDialog(_question.explanation);
   }
 
   Future<void> _showExplanationDialog(String explanation) async {
@@ -92,10 +114,31 @@ class _ExamPageState extends State<ExamPage> {
     setState(() {
       _score++;
       _currentIndex++;
+
       _selected.clear();
       _hasChecked = false;
       _isCorrect = false;
+      _failedBefore = false;
+
+      if (widget.infiniteMode) _ensureMoreQuestions();
     });
+  }
+
+  void _ensureMoreQuestions() {
+    if (widget.questionBank.isEmpty) return;
+
+    if (_currentIndex < _exam.length) return;
+
+    int extra = min(10, widget.questionBank.length);
+
+    for (int i = 0; i < extra; i++) {
+      Question base = widget.questionBank[_random.nextInt(widget.questionBank.length)];
+      List<Answer> answers = List<Answer>.from(base.answers)..shuffle(_random);
+
+      _exam.add(
+        base.copyWith(answers: answers),
+      );
+    }
   }
 
   bool _setsEqual(Set<int> a, Set<int> b) {
@@ -108,16 +151,20 @@ class _ExamPageState extends State<ExamPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_currentIndex >= widget.exam.length) {
+    if (!widget.infiniteMode && _currentIndex >= _exam.length) {
       return Scaffold(
         appBar: AppBar(title: const Text('Examen finalizado')),
         body: Center(
           child: Text(
-            'Resultado: $_score / ${widget.exam.length}',
+            'Resultado: $_score / ${_exam.length}',
             style: Theme.of(context).textTheme.headlineMedium,
           ),
         ),
       );
+    }
+
+    if (widget.infiniteMode && _currentIndex >= _exam.length) {
+      _ensureMoreQuestions();
     }
 
     Question q = _question;
@@ -125,12 +172,22 @@ class _ExamPageState extends State<ExamPage> {
 
     int totalRows = q.answers.length + 1;
 
-    bool canCheck = _selected.isNotEmpty;
+    // "Comprobar" solo si hay selección y aún no has acertado
+    bool canCheck = _selected.isNotEmpty && !_isCorrect;
+
+    // "Siguiente" solo si has comprobado y acertado
     bool canNext = _hasChecked && _isCorrect;
+
+    // "Ver explicación" solo si has acertado
+    bool canSeeExplanation = _isCorrect;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Pregunta ${_currentIndex + 1} / ${widget.exam.length}'),
+        title: Text(
+          widget.infiniteMode
+              ? 'Modo infinito · Aciertos: $_score'
+              : 'Pregunta ${_currentIndex + 1} / ${_exam.length}',
+        ),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -144,21 +201,32 @@ class _ExamPageState extends State<ExamPage> {
                 itemCount: totalRows,
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (BuildContext context, int i) {
+                  // Última fila: botones, pegados a las opciones
                   if (i == q.answers.length) {
-                    return Row(
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: canCheck ? _check : null,
-                            child: const Text('Comprobar'),
-                          ),
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: canCheck ? _check : null,
+                                child: const Text('Comprobar'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: canNext ? _next : null,
+                                child: const Text('Siguiente'),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: canNext ? _next : null,
-                            child: const Text('Siguiente'),
-                          ),
+                        const SizedBox(height: 10),
+                        OutlinedButton(
+                          onPressed: canSeeExplanation ? () => _showExplanationDialog(q.explanation) : null,
+                          child: const Text('Ver explicación'),
                         ),
                       ],
                     );
@@ -174,7 +242,7 @@ class _ExamPageState extends State<ExamPage> {
                   }
 
                   return InkWell(
-                    onTap: () => _toggle(i),
+                    onTap: _isCorrect ? null : () => _toggle(i),
                     child: Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -186,7 +254,7 @@ class _ExamPageState extends State<ExamPage> {
                         children: <Widget>[
                           Checkbox(
                             value: selected,
-                            onChanged: (_) => _toggle(i),
+                            onChanged: _isCorrect ? null : (_) => _toggle(i),
                           ),
                           const SizedBox(width: 8),
                           Expanded(child: Text(a.text)),
@@ -197,17 +265,6 @@ class _ExamPageState extends State<ExamPage> {
                 },
               ),
             ),
-            const SizedBox(height: 12),
-            if (_hasChecked && !_isCorrect)
-              Text(
-                'Incorrecto. Ajusta tu selección y vuelve a comprobar.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            if (_hasChecked && _isCorrect)
-              Text(
-                'Correcto. Ya puedes pasar a la siguiente.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
           ],
         ),
       ),
